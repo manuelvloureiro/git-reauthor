@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+import os
+
+INSTALL_LOCATION = '/usr/local/bin'
+
+
+def install_uninstall(args):
+    if args.install:
+        os.system(f'cp {__file__} {INSTALL_LOCATION}')
+        sys.exit(0)
+
+    if args.uninstall:
+        if not args.force:
+            if Path(__file__).absolute() == Path(INSTALL_LOCATION) / __file__:
+                print("Use flag --force to delete this file", file=sys.stderr)
+                return -1
+        os.system(f'rm {Path(INSTALL_LOCATION) / __file__}')
+        sys.exit(0)
+
+
+def validate_arguments(args):
+    if args.search_name == args.search_email:
+        print("Must have either flag --search-name or --search-email",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if not (args.correct_name or args.correct_email):
+        print("Must have at least flag --correct-name or --correct-email",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if args.only_author and args.only_committer:
+        print("Can only have either flag --only-author --only-committer",
+              file=sys.stderr)
+        sys.exit(1)
+
+
+def git_reauthor(args):
+    search_variable = "NAME" if args.search_name else "EMAIL"
+    search_value = args.search_name if args.search_name else args.search_email
+
+    if args.only_author:
+        change_variables = ["AUTHOR"]
+    elif args.only_committer:
+        change_variables = ["COMMITTER"]
+    else:
+        change_variables = ["AUTHOR", "COMMITTER"]
+
+    command = "git filter-branch -f --env-filter '{}\n'" \
+              " --tag-name-filter cat -- --branches --tags"""
+
+    query = ""
+    for var in change_variables:
+        name = ''
+        if args.correct_name:
+            name = f'export GIT_{var}_NAME="{args.correct_name}"'
+
+        email = ''
+        if args.correct_email:
+            email = f'export GIT_{var}_EMAIL="{args.correct_email}"'
+        query += f"""
+        if [ "$GIT_{var}_{search_variable}" = "{search_value}" ]
+        then
+            {name}
+            {email}
+        fi"""
+
+    return command.format(query)
+
+
+def main(args):
+    install_uninstall(args)
+    validate_arguments(args)
+    os.system(git_reauthor(args))
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Substitute the author in a repository."
+    )
+    parser.add_argument("--search-name", help="Name to be substituted.")
+    parser.add_argument("--search-email", help="Email to be substituted.")
+    parser.add_argument("--correct-name", help="Name to be added.")
+    parser.add_argument("--correct-email", help="New email.")
+    parser.add_argument("--only-author", action='store_true',
+                        help="Change the author. Keep the committer.")
+    parser.add_argument("--only-committer", action='store_true',
+                        help="Change the committer. Keep the author.")
+    parser.add_argument("--install", action='store_true',
+                        help=f'Install {__file__} in {INSTALL_LOCATION}.')
+    parser.add_argument("--uninstall", action='store_true',
+                        help=f'Uninstall {__file__} from {INSTALL_LOCATION}.')
+    parser.add_argument("--force", action='store_true',
+                        help='Force uninstall if needed.')
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    main(parse_arguments())
